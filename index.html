@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An interactive visualization of strong and weak CPU memory ordering.">
+  <title>Memory ordering, visualized</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <a class="eyebrow" href="https://fgiesen.wordpress.com/2026/08/25/memory-ordering-in-cpus/" target="_blank" rel="noreferrer">Interactive companion to ryg's article <span>↗</span></a>
+      <h1>Memory ordering is<br><em>trust, then verify.</em></h1>
+      <p class="lede">Fast CPUs run memory operations optimistically and out of order. The important difference is what each model must notice—and replay—when another core gets involved.</p>
+    </header>
+
+    <section class="lab" aria-labelledby="lab-title">
+      <div class="lab-topbar">
+        <div>
+          <p class="kicker">LIVE SIMULATION</p>
+          <h2 id="lab-title">One contention event. Two promises.</h2>
+        </div>
+        <div class="controls" aria-label="Simulation controls">
+          <button id="previous" type="button" aria-label="Previous step">←</button>
+          <button id="next" class="primary" type="button">Next step <span class="play-icon">→</span></button>
+          <button id="play" type="button"><span class="play-icon">▶</span> Auto-play</button>
+          <label class="speed">speed <select id="speed" aria-label="Simulation speed"><option value="1">1×</option><option value="1.65" selected>1.65×</option><option value="2.5">2.5×</option></select></label>
+        </div>
+      </div>
+
+      <div class="scenario">
+        <div class="scenario-copy">
+          <p class="kicker">THE PROGRAM</p>
+          <h3>Message passing</h3>
+          <p>Source code says: check <code>ready</code>, then use <code>payload</code>. The CPU privately looks ahead and reads the payload first. Click through the trace to see why that is normally safe.</p>
+        </div>
+        <div class="code-grid" aria-label="Message passing pseudocode">
+          <div class="code-card writer-code"><span class="core-label">CORE W · WRITER</span><code><i>01</i> payload = <b>42</b>;<br><i>02</i> <span id="writerReady">ready = <b>1</b>;</span></code></div>
+          <div class="code-card reader-code"><span class="core-label">CORE R · READER</span><code><i>01</i> if (<span id="readerReady">ready</span>)<br><i>02</i>&nbsp;&nbsp;use(payload);</code></div>
+        </div>
+      </div>
+
+      <aside class="guide" aria-live="polite" aria-atomic="true">
+        <div class="guide-counter"><span id="guideStep">00</span><small>/ 06</small></div>
+        <div class="guide-copy"><p class="kicker" id="guideKicker">START HERE</p><h3 id="guideTitle">The program has a source order.</h3><p id="guideText">Core R is written to read <code>ready</code> first. Neither CPU has done any work yet. Use <strong>Next step</strong> to advance one visible event at a time.</p></div>
+        <div class="guide-rule"><span>WHAT TO WATCH</span><p id="guideRule"><b>01</b> and <b>02</b> are source-code positions. Their vertical placement shows the order the CPU actually executed them.</p></div>
+      </aside>
+
+      <div class="shared-bus" aria-label="Shared memory and writer activity">
+        <div class="writer-pulse" id="writerPulse"><span class="core-dot writer-dot"></span><span>Core W</span><b>publishes</b></div>
+        <div class="memory">
+          <span class="memory-title">SHARED MEMORY</span>
+          <div class="memory-cell"><span>payload</span><strong id="payloadValue">0</strong></div>
+          <div class="memory-cell"><span>ready</span><strong id="readyValue">0</strong></div>
+        </div>
+        <div class="bus-caption" id="busCaption">waiting for the next run</div>
+      </div>
+
+      <div class="models">
+        <article class="model strong" id="strongModel" aria-labelledby="strong-title">
+          <header class="model-heading">
+            <div><p class="model-tag">STRONGLY ORDERED</p><h3 id="strong-title">Must catch the conflict</h3></div>
+            <span class="architecture">x86 / TSO</span>
+          </header>
+          <p class="model-intro">The speculative read is fine. Retiring the two reads in an order that violates the model is not.</p>
+          <div class="pipeline" aria-label="Strong ordering pipeline">
+            <div class="pipeline-head"><span>CORE R · SPECULATIVE WINDOW</span><span>time →</span></div>
+            <div class="op op-payload" data-op="strong-payload"><span class="op-num">02</span><b>LOAD payload</b><small>speculates early → <em>0</em></small><span class="state">issued</span></div>
+            <div class="op op-ready" data-op="strong-ready"><span class="op-num">01</span><b>LOAD ready</b><small>reads <em>1</em></small><span class="state">issued</span></div>
+            <div class="conflict strong-conflict" data-el="strong-conflict"><span>!</span><div><b>Ordering conflict found</b><small><code>payload</code> changed while its read was in flight</small></div></div>
+            <div class="replay strong-replay" data-el="strong-replay"><span>↺</span><div><b>Replay from load 01</b><small>re-read payload → <strong>42</strong></small></div></div>
+          </div>
+          <div class="verdict" data-el="strong-verdict"><span class="verdict-mark">✓</span><div><strong>Program order preserved</strong><small>observes <code>ready = 1</code>, <code>payload = 42</code></small></div></div>
+          <p class="tracking"><span>⌁</span> Tracks in-flight memory operations broadly enough to detect this case.</p>
+        </article>
+
+        <article class="model weak" id="weakModel" aria-labelledby="weak-title">
+          <header class="model-heading">
+            <div><p class="model-tag">WEAKLY ORDERED</p><h3 id="weak-title">May accept the outcome</h3></div>
+            <span class="architecture">ARM / RISC-V</span>
+          </header>
+          <p class="model-intro">Relaxed reads have no ordering promise between them, so this result may retire without a replay.</p>
+          <div class="pipeline" aria-label="Weak ordering pipeline">
+            <div class="pipeline-head"><span>CORE R · SPECULATIVE WINDOW</span><span>time →</span></div>
+            <div class="op op-payload" data-op="weak-payload"><span class="op-num">02</span><b>LOAD payload</b><small>speculates early → <em>0</em></small><span class="state">issued</span></div>
+            <div class="op op-ready" data-op="weak-ready"><span class="op-num">01</span><b>LOAD ready</b><small>reads <em>1</em></small><span class="state">issued</span></div>
+            <div class="conflict weak-conflict" data-el="weak-conflict"><span>≈</span><div><b>Allowed for relaxed operations</b><small>no required order between these reads</small></div></div>
+            <div class="replay weak-fence" data-el="weak-fence"><span>▥</span><div><b>Acquire / release establishes order</b><small>the stale read is retried → <strong>42</strong></small></div></div>
+          </div>
+          <div class="verdict warning" data-el="weak-verdict"><span class="verdict-mark">!</span><div><strong>Legal—but not a message</strong><small>observes <code>ready = 1</code>, <code>payload = 0</code></small></div></div>
+          <p class="tracking"><span>⌁</span> Tracks ordering where the program asks for it: at an acquire/release or fence.</p>
+        </article>
+      </div>
+
+      <div class="fence-panel">
+        <div><p class="kicker">MAKE THE CONTRACT EXPLICIT</p><h3>Give the weak model a synchronization edge.</h3><p>Turn on release/acquire and re-run. The weak CPU now has an ordering constraint to uphold.</p></div>
+        <button id="fenceToggle" class="switch" type="button" role="switch" aria-checked="false"><span class="switch-dot"></span><span id="fenceText">relaxed loads / stores</span></button>
+      </div>
+    </section>
+
+    <section class="why-look-ahead" aria-labelledby="why-look-ahead-title">
+      <div class="why-heading"><p class="kicker">A COMMON QUESTION</p><h2 id="why-look-ahead-title">Why read <code>payload</code> before <code>ready</code>?</h2><p>Because waiting for one load before starting the next wastes time. A modern CPU can start independent work while it waits.</p></div>
+      <ol class="why-steps">
+        <li><span>01</span><div><h3>Predict the branch</h3><p>While the <code>ready</code> load is still pending, Core R predicts that <code>ready</code> will be non-zero and that the <code>if</code> body will run.</p></div></li>
+        <li><span>02</span><div><h3>Overlap the cache requests</h3><p>The address of <code>payload</code> is already known, so the CPU starts that load early instead of waiting for <code>ready</code>, then waiting again.</p></div></li>
+        <li><span>03</span><div><h3>Retire only when valid</h3><p>The early value stays temporary. A bad prediction, exception, or ordering conflict can squash it and retry it before the program is allowed to observe it.</p></div></li>
+      </ol>
+      <p class="why-note"><b>Important:</b> this is not a weak-ordering trick—strong and weak CPUs both speculate. It only works when the later load’s address is independent and already known.</p>
+    </section>
+
+    <section class="takeaway" aria-labelledby="takeaway-title">
+      <div><p class="kicker">THE POINT</p><h2 id="takeaway-title">Not “in order” versus “out of order.”</h2></div>
+      <p>Both machines can speculate, reorder internally, and fly through uncontended memory accesses. A stronger memory model means <mark>more outcomes need to be detected and undone</mark> when contention exposes them—not that every operation waits its turn.</p>
+    </section>
+
+    <footer><span>Built as a visual companion to <a href="https://fgiesen.wordpress.com/2026/08/25/memory-ordering-in-cpus/" target="_blank" rel="noreferrer">“Memory ordering in CPUs”</a> by Fabian Giesen.</span><span>Try the toggle, then run it again.</span></footer>
+  </main>
+  <script src="script.js"></script>
+</body>
+</html>
